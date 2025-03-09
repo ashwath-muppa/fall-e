@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pole Stability Monitoring System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .status-online {
+            color: #28a745;
+        }
+        .status-maintenance {
+            color: #ffc107;
+        }
+        .status-offline {
+            color: #dc3545;
+        }
+        .prediction-unstable {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .prediction-stable {
+            color: #28a745;
+            font-weight: bold;
+        }
+        /* Reduced height for vibration chart container */
+        #vibrationChart {
+            height: 120px; /* Reduced from original height */
+        }
+        .chart-container {
+            position: relative;
+            height: 120px; /* Added explicit container height */
+        }
+        .location-card {
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .location-card:hover {
+            transform: translateY(-5px);
+        }
+        .location-card.selected {
+            border: 2px solid #0d6efd;
+        }
+        .prediction-alert {
+            display: none;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="pb-3 mb-4 border-bottom">
+            <div class="d-flex align-items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-exclamation-triangle me-2" viewBox="0 0 16 16">
+                    <path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.146.146 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.163.163 0 0 1-.054.06.116.116 0 0 1-.066.017H1.146a.115.115 0 0 1-.066-.017.163.163 0 0 1-.054-.06.176.176 0 0 1 .002-.183L7.884 2.073a.147.147 0 0 1 .054-.057zm1.044-.45a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566z"/>
+                    <path d="M7.002 12a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 5.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995z"/>
+                </svg>
+                <h2 class="fs-4 mb-0">Pole Stability Monitoring System</h2>
+            </div>
+            <p class="text-muted mt-2">Monitor and predict utility pole stability in real-time across various regions</p>
+        </header>
+
+        <div class="row">
+            <!-- Left panel - Monitoring locations -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Monitoring Stations</h5>
+                        <span class="badge bg-primary" id="totalStations">8 Stations</span>
+                    </div>
+                    <div class="card-body p-2" id="locationsContainer">
+                        <!-- Location cards will be inserted here dynamically -->
+                        <div class="d-flex justify-content-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Station Details</h5>
+                    </div>
+                    <div class="card-body" id="locationDetails">
+                        <p class="text-center text-muted">Select a monitoring station to view details</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right panel - Visualization and prediction -->
+            <div class="col-md-8">
+                <div class="alert alert-danger prediction-alert" id="unstableAlert" role="alert">
+                    <h4 class="alert-heading"><span id="predictionLocationName"></span> - Pole Instability Detected!</h4>
+                    <p id="predictionConfidence">Confidence: 0%</p>
+                    <p id="predictionTimestamp">Time: --:--:--</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Vibration Data</h5>
+                        <div>
+                            <span class="badge bg-secondary" id="currentLocation">No Station Selected</span>
+                            <button class="btn btn-sm btn-primary ms-2" id="streamButton" disabled>Stream Data</button>
+                            <button class="btn btn-sm btn-outline-danger ms-1" id="simulateUnstableBtn" disabled>Simulate Instability</button>
+                        </div>
+                    </div>
+                    <div class="card-body p-2"> <!-- Reduced padding -->
+                        <div class="chart-container">
+                            <canvas id="vibrationChart"></canvas>
+                        </div>
+                        <div class="mt-2 text-center" id="noDataMessage"> <!-- Reduced margin -->
+                            <p class="text-muted small">Select a monitoring station to view vibration data</p> <!-- Made text smaller -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Stability Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Current Status</h6>
+                                <div class="display-6 mb-3" id="predictionResult">
+                                    <span class="text-muted">No analysis</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Historical Stats</h6>
+                                <div id="statsContainer" class="text-muted">
+                                    Select a station to view statistics
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="pt-3 mt-4 text-muted border-top">
+            &copy; 2025 Pole Stability Monitoring System
+        </footer>
+    </div>
+
+    <script>
+        // Global variables
+        let selectedLocation = null;
+        let vibrationChart = null;
+        let streamInterval = null;
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fetch available locations
+            fetchLocations();
+            
+            // Set up event listeners
+            document.getElementById('streamButton').addEventListener('click', toggleDataStream);
+            document.getElementById('simulateUnstableBtn').addEventListener('click', simulateUnstable);
+            
+            // Initialize chart
+            initializeChart();
+        });
+        
+        // Fetch available monitoring locations
+        function fetchLocations() {
+            fetch('/locations')
+                .then(response => response.json())
+                .then(data => {
+                    displayLocations(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching locations:', error);
+                    document.getElementById('locationsContainer').innerHTML = 
+                        '<div class="alert alert-danger">Failed to load monitoring stations.</div>';
+                });
+        }
+        
+        // Display locations in the sidebar
+        function displayLocations(locations) {
+            const container = document.getElementById('locationsContainer');
+            container.innerHTML = '';
+            
+            let onlineCount = 0;
+            
+            Object.keys(locations).forEach(locationId => {
+                const location = locations[locationId];
+                if (location.status === 'online') onlineCount++;
+                
+                const card = document.createElement('div');
+                card.className = 'card location-card mb-2';
+                card.dataset.locationId = locationId;
+                
+                const statusClass = location.status === 'online' ? 'status-online' : 'status-maintenance';
+                
+                // Update descriptions to be about poles
+                let poleDescription = location.description.replace(
+                    /fault|seismic|earthquake/gi, 
+                    match => {
+                        if (/fault/i.test(match)) return "power line corridor";
+                        if (/seismic/i.test(match)) return "vibration";
+                        if (/earthquake/i.test(match)) return "instability";
+                        return match;
+                    }
+                );
+                
+                card.innerHTML = `
+                    <div class="card-body p-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">${location.name}</h6>
+                            <span class="${statusClass}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" class="bi bi-circle-fill" viewBox="0 0 16 16">
+                                    <circle cx="8" cy="8" r="8"/>
+                                </svg>
+                                ${location.status}
+                            </span>
+                        </div>
+                        <small class="text-muted">${poleDescription}</small>
+                    </div>
+                `;
+                
+                card.addEventListener('click', () => selectLocation(locationId));
+                container.appendChild(card);
+            });
+            
+            document.getElementById('totalStations').textContent = `${onlineCount} Online`;
+        }
+        
+        // Select a location for monitoring
+        function selectLocation(locationId) {
+            // Clear previous selection
+            const prevSelected = document.querySelector('.location-card.selected');
+            if (prevSelected) {
+                prevSelected.classList.remove('selected');
+            }
+            
+            // Mark new selection
+            const locationCard = document.querySelector(`.location-card[data-location-id="${locationId}"]`);
+            if (locationCard) {
+                locationCard.classList.add('selected');
+            }
+            
+            // Update global selected location
+            selectedLocation = locationId;
+            
+            // Update UI
+            document.getElementById('currentLocation').textContent = locationId;
+            document.getElementById('streamButton').disabled = false;
+            document.getElementById('simulateUnstableBtn').disabled = false;
+            document.getElementById('noDataMessage').style.display = 'none';
+            
+            // Stop existing stream if any
+            if (streamInterval) {
+                clearInterval(streamInterval);
+                streamInterval = null;
+                document.getElementById('streamButton').textContent = 'Stream Data';
+            }
+            
+            // Fetch location details
+            fetchLocationDetails(locationId);
+            
+            // Fetch initial data
+            fetchVibrationData(locationId);
+        }
+        
+        // Fetch and display location details
+        function fetchLocationDetails(locationId) {
+            fetch(`/location-stats/${locationId}`)
+                .then(response => response.json())
+                .then(data => {
+                    // Convert earthquake terminology to pole stability terminology
+                    const updatedData = {
+                        ...data,
+                        risk_level: data.risk_level,
+                        last_month_events: data.last_month_events,
+                        average_magnitude: data.average_magnitude,
+                        historical_data: data.historical_data.map(item => ({
+                            ...item,
+                            events: item.events,
+                            max_magnitude: item.max_magnitude
+                        }))
+                    };
+                    
+                    displayLocationDetails(updatedData);
+                    displayLocationStats(updatedData);
+                })
+                .catch(error => {
+                    console.error('Error fetching location details:', error);
+                    document.getElementById('locationDetails').innerHTML = 
+                        '<div class="alert alert-danger">Failed to load station details.</div>';
+                });
+        }
+        
+        // Display location details
+        function displayLocationDetails(locationData) {
+            const detailsEl = document.getElementById('locationDetails');
+            
+            const statusClass = locationData.status === 'online' ? 'status-online' : 'status-maintenance';
+            
+            // Update descriptions to be about poles
+            let poleDescription = locationData.description.replace(
+                /fault|seismic|earthquake/gi, 
+                match => {
+                    if (/fault/i.test(match)) return "power line corridor";
+                    if (/seismic/i.test(match)) return "vibration";
+                    if (/earthquake/i.test(match)) return "pole stability";
+                    return match;
+                }
+            );
+            
+            detailsEl.innerHTML = `
+                <h5>${locationData.location_name}</h5>
+                <p>${poleDescription}</p>
+                <div class="mb-2">
+                    <span class="badge ${statusClass === 'status-online' ? 'bg-success' : 'bg-warning'}">${locationData.status.toUpperCase()}</span>
+                    <span class="badge bg-${locationData.risk_level === 'High' ? 'danger' : locationData.risk_level === 'Medium' ? 'warning' : 'success'}">
+                        ${locationData.risk_level} Risk
+                    </span>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-6">
+                        <div class="border rounded p-2 text-center">
+                            <div class="fs-4">${locationData.last_month_events}</div>
+                            <small class="text-muted">Instability Events</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-2 text-center">
+                            <div class="fs-4">${locationData.average_magnitude}</div>
+                            <small class="text-muted">Avg. Severity</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Display location statistics
+        function displayLocationStats(locationData) {
+            const statsEl = document.getElementById('statsContainer');
+            
+            // Format historical data
+            let historyHtml = '';
+            if (locationData.historical_data && locationData.historical_data.length > 0) {
+                historyHtml = '<table class="table table-sm"><thead><tr><th>Month</th><th>Events</th><th>Max Sev.</th></tr></thead><tbody>';
+                locationData.historical_data.forEach(month => {
+                    historyHtml += `<tr><td>${month.date}</td><td>${month.events}</td><td>${month.max_magnitude}</td></tr>`;
+                });
+                historyHtml += '</tbody></table>';
+            }
+            
+            statsEl.innerHTML = `
+                <div>
+                    <p><strong>Risk Level:</strong> ${locationData.risk_level}</p>
+                    <div class="small mt-2">
+                        ${historyHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Updated chart initialization function with reduced size
+        function initializeChart() {
+            const ctx = document.getElementById('vibrationChart').getContext('2d');
+            
+            vibrationChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(20).fill(''),  // Reduced from 30 to 20 data points
+                    datasets: [
+                        {
+                            label: 'X Axis',
+                            data: Array(20).fill(0),
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1,
+                            fill: false,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Y Axis',
+                            data: Array(20).fill(0),
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1,
+                            fill: false,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Z Axis',
+                            data: Array(20).fill(0),
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 1,
+                            fill: false,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            min: -0.5,
+                            max: 0.5,
+                            ticks: {
+                                display: true,
+                                maxTicksLimit: 3 // Limit the y-axis ticks for a cleaner look
+                            },
+                            grid: {
+                                display: false // Remove grid lines
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                display: false // Hide x-axis labels completely
+                            },
+                            grid: {
+                                display: false // Remove grid lines
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                boxWidth: 8, // Smaller legend items
+                                padding: 4,
+                                font: {
+                                    size: 10 // Smaller legend text
+                                }
+                            }
+                        },
+                        tooltip: {
+                            enabled: false // Disable tooltips for cleaner UI
+                        }
+                    },
+                    elements: {
+                        point: {
+                            radius: 0 // Hide points for cleaner look
+                        },
+                        line: {
+                            borderWidth: 1.5 // Slightly thicker lines
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Fetch vibration data for a location
+        function fetchVibrationData(locationId, forceUnstable = false) {
+            const streamEndpoint = forceUnstable ? 
+                `/stream-data?location=${locationId}&force_earthquake=true` : 
+                `/stream-data?location=${locationId}`;
+                
+            fetch(streamEndpoint)
+                .then(response => response.json())
+                .then(data => {
+                    updateVibrationChart(data.data);
+                })
+                .catch(error => {
+                    console.error('Error fetching vibration data:', error);
+                });
+                
+            // Also make a prediction if we're forcing an unstable event
+            if (forceUnstable) {
+                makePrediction(locationId, true);
+            }
+        }
+        
+        // Update the vibration chart with new data
+        function updateVibrationChart(data) {
+            if (!vibrationChart) return;
+            
+            // Update each axis - limit data to 20 points to match our chart setup
+            const trimmedData = data.slice(0, 20);
+            
+            for (let i = 0; i < 3; i++) {
+                const axisData = trimmedData.map(point => point[i]);
+                vibrationChart.data.datasets[i].data = axisData;
+            }
+            
+            vibrationChart.update();
+        }
+        
+        // Toggle data streaming
+        function toggleDataStream() {
+            if (!selectedLocation) return;
+            
+            const streamButton = document.getElementById('streamButton');
+            
+            if (streamInterval) {
+                // Stop streaming
+                clearInterval(streamInterval);
+                streamInterval = null;
+                streamButton.textContent = 'Stream Data';
+                streamButton.classList.remove('btn-danger');
+                streamButton.classList.add('btn-primary');
+            } else {
+                // Start streaming
+                streamButton.textContent = 'Stop Stream';
+                streamButton.classList.remove('btn-primary');
+                streamButton.classList.add('btn-danger');
+                
+                // Immediately fetch data
+                fetchVibrationData(selectedLocation);
+                
+                // Set up interval for continuous streaming
+                streamInterval = setInterval(() => {
+                    fetchVibrationData(selectedLocation);
+                }, 1000); // Update every second
+            }
+        }
+        
+        // Simulate an unstable pole for the selected location
+        function simulateUnstable() {
+            if (!selectedLocation) return;
+            
+            // Fetch data with forced instability
+            fetchVibrationData(selectedLocation, true);
+        }
+        
+        // Make pole stability prediction request
+        function makePrediction(locationId, forceUnstable = false) {
+            const requestBody = {
+                location: locationId,
+                force_earthquake: forceUnstable // Using the same backend parameter
+            };
+            
+            fetch('/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => response.json())
+            .then(result => {
+                // Change earthquake terminology to pole stability terminology
+                const updatedResult = {
+                    ...result,
+                    prediction_text: result.prediction_text === "Earthquake" ? "Unstable Pole" : "Stable Pole"
+                };
+                displayPredictionResult(updatedResult);
+            })
+            .catch(error => {
+                console.error('Error making prediction:', error);
+            });
+        }
+        
+        // Display prediction results
+        function displayPredictionResult(result) {
+            const predictionEl = document.getElementById('predictionResult');
+            const alertEl = document.getElementById('unstableAlert');
+            
+            // Format the confidence percentage
+            const confidencePercent = (result.confidence * 100).toFixed(1) + '%';
+            
+            if (result.class === 1) {
+                // Unstable pole detected
+                predictionEl.innerHTML = `
+                    <span class="prediction-unstable">UNSTABLE POLE DETECTED</span>
+                    <div class="small">Confidence: ${confidencePercent}</div>
+                    <div class="small">Time: ${result.timestamp}</div>
+                `;
+                
+                // Show alert
+                alertEl.style.display = 'block';
+                document.getElementById('predictionLocationName').textContent = result.location.name;
+                document.getElementById('predictionConfidence').textContent = `Confidence: ${confidencePercent}`;
+                document.getElementById('predictionTimestamp').textContent = `Time: ${result.timestamp}`;
+                
+                // Auto-hide alert after 10 seconds
+                setTimeout(() => {
+                    alertEl.style.display = 'none';
+                }, 10000);
+            } else {
+                // Stable pole
+                predictionEl.innerHTML = `
+                    <span class="prediction-stable">POLE STABLE</span>
+                    <div class="small">Confidence: ${confidencePercent}</div>
+                    <div class="small">Time: ${result.timestamp}</div>
+                `;
+                
+                // Hide alert
+                alertEl.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
